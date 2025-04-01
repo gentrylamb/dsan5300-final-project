@@ -1,0 +1,175 @@
+
+## Poverty Data Cleaning
+```{python}
+import pandas as pd
+import numpy as np
+
+poverty_df = pd.read_csv("./Data/Poverty_Data_2022.csv")
+
+# Clean poverty data
+poverty_df = poverty_df.drop(["State FIPS Code", "Estimated Total Population"], axis=1)
+
+# Drop rows with missing values (but do this after renaming, so column names are correct)
+poverty_df = poverty_df.rename(columns={
+    "State Postal Code": "STATE_NAME",
+    "Estimated Population 5-17": "pop_students",
+    "Estimated number of relevant children 5 to 17 years old in poverty who are related to the householder": "pop_students_poverty"
+})
+
+# Remove commas from numeric columns before conversion
+poverty_df["pop_students_poverty"] = poverty_df["pop_students_poverty"].astype(str).str.replace(",", "")
+poverty_df["pop_students"] = poverty_df["pop_students"].astype(str).str.replace(",", "")
+
+# Convert columns to numeric, coercing errors to NaN
+poverty_df["pop_students_poverty"] = pd.to_numeric(poverty_df["pop_students_poverty"], errors="coerce")
+poverty_df["pop_students"] = pd.to_numeric(poverty_df["pop_students"], errors="coerce")
+
+# Drop rows where either value is missing (ensures no NaN issues during division)
+poverty_df = poverty_df.dropna(subset=["pop_students_poverty", "pop_students"])
+
+# Convert to integer safely
+poverty_df = poverty_df.astype({"pop_students_poverty": int, "pop_students": int})
+
+# Prevent division by zero
+poverty_df["student_poverty_ratio"] = poverty_df["pop_students_poverty"] / poverty_df["pop_students"]
+poverty_df["student_poverty_ratio"] = poverty_df["student_poverty_ratio"].fillna(0)  # Replace NaN (if any) with 0
+
+poverty_df.head()
+```
+
+## Demographic Cleaning
+
+```{python}
+# Dictionary mapping old column names to new column names
+rename_dict = {
+    "AM7_T": "Am_Indian_Total",
+    "AM7_F": "Am_Indian_Female",
+    "AM7_M": "Am_Indian_Male",
+    "AS7_T": "Asian_Total",
+    "AS7_F": "Asian_Female",
+    "AS7_M": "Asian_Male",
+    "P17_T": "Pac_Islander_Total",
+    "P17_F": "Pac_Islander_Female",
+    "P17_M": "Pac_Islander_Male",
+    "BL7_T": "Black_Total",
+    "BL7_F": "Black_Female",
+    "BL7_M": "Black_Male",
+    "HI7_T": "Hispanic_Total",
+    "HI7_F": "Hispanic_Female",
+    "HI7_M": "Hispanic_Male",
+    "MU7_T": "Multiracial_Total",
+    "MU7_F": "Multiracial_Female",
+    "MU7_M": "Multiracial_Male",
+    "WH7_T": "White_Total",
+    "WH7_F": "White_Female",
+    "WH7_M": "White_Male",
+    "WDIS_T": "Disabilities_Total",
+    "WDIS_F": "Disabilities_Female",
+    "WDIS_M": "Disabilities_Male",
+    "DISAB504STAT_T": "Sec504_Total",
+    "DISAB504STAT_F": "Sec504_Female",
+    "DISAB504STAT_M": "Sec504_Male",
+    "ECODIS_T": "Econ_Disadv_Total",
+    "ECODIS_F": "Econ_Disadv_Female",
+    "ECODIS_M": "Econ_Disadv_Male",
+    "LEP_T": "Eng_Learner_Total",
+    "LEP_F": "Eng_Learner_Female",
+    "LEP_M": "Eng_Learner_Male",
+    "HOM_T": "Homeless_Total",
+    "HOM_F": "Homeless_Female",
+    "HOM_M": "Homeless_Male",
+}
+
+state_abbrev = {
+    "ALABAMA": "AL", "ALASKA": "AK", "ARIZONA": "AZ", "ARKANSAS": "AR", "CALIFORNIA": "CA",
+    "COLORADO": "CO", "CONNECTICUT": "CT", "DELAWARE": "DE", "FLORIDA": "FL", "GEORGIA": "GA",
+    "HAWAII": "HI", "IDAHO": "ID", "ILLINOIS": "IL", "INDIANA": "IN", "IOWA": "IA",
+    "KANSAS": "KS", "KENTUCKY": "KY", "LOUISIANA": "LA", "MAINE": "ME", "MARYLAND": "MD",
+    "MASSACHUSETTS": "MA", "MICHIGAN": "MI", "MINNESOTA": "MN", "MISSISSIPPI": "MS", "MISSOURI": "MO",
+    "MONTANA": "MT", "NEBRASKA": "NE", "NEVADA": "NV", "NEW HAMPSHIRE": "NH", "NEW JERSEY": "NJ",
+    "NEW MEXICO": "NM", "NEW YORK": "NY", "NORTH CAROLINA": "NC", "NORTH DAKOTA": "ND", "OHIO": "OH",
+    "OKLAHOMA": "OK", "OREGON": "OR", "PENNSYLVANIA": "PA", "RHODE ISLAND": "RI", "SOUTH CAROLINA": "SC",
+    "SOUTH DAKOTA": "SD", "TENNESSEE": "TN", "TEXAS": "TX", "UTAH": "UT", "VERMONT": "VT",
+    "VIRGINIA": "VA", "WASHINGTON": "WA", "WEST VIRGINIA": "WV", "WISCONSIN": "WI", "WYOMING": "WY"
+}
+
+# Cleaning Absentee Demographic Data
+absentee_demo_df = pd.read_csv("./Data/Chronic_Absenteeism_Demographics_2022.csv")
+
+absentee_demo_df = absentee_demo_df.drop(["SCHOOL_YEAR", "DATA_GROUP_ID", "TEXT_VALUE"], axis = 1)
+
+# Clean the absentee_demo_df DataFrame
+absentee_demo_df = absentee_demo_df[~absentee_demo_df["SUBGROUP"].isin(["ALLLEA", "ALLSEA", "ALLSCH"])]
+absentee_demo_df["CHARACTERISTICS"] = absentee_demo_df["CHARACTERISTICS"].fillna("T")
+
+# Combine 'SUBGROUP' and 'CHARACTERISTICS' into a new 'race_and_gender' column
+absentee_demo_df["race_and_gender"] = absentee_demo_df["SUBGROUP"].astype(str) + "_" + absentee_demo_df["CHARACTERISTICS"].astype(str)
+
+# Drop the original 'SUBGROUP' and 'CHARACTERISTICS' columns
+absentee_demo_df = absentee_demo_df.drop(["SUBGROUP", "CHARACTERISTICS"], axis=1)
+
+# Pivot the DataFrame to make it wide
+df_wide = absentee_demo_df.pivot_table(index=["LEAID", "LEA_NAME", "STATE_NAME"], 
+                                       columns=["race_and_gender"], 
+                                       values="NUMERIC_VALUE").reset_index()
+
+df_wide = df_wide.fillna(0)
+
+df_wide = df_wide.rename(columns=rename_dict)
+# Convert full state names to abbreviations
+df_wide["STATE_NAME"] = df_wide["STATE_NAME"].str.upper().map(state_abbrev)
+
+# Display the first 25 rows of the cleaned DataFrame
+print(df_wide.head(25))
+```
+
+## Total Absentee Cleaning & Merging Data (pt 1)
+
+```{python}
+absentee_total_df = pd.read_csv("./Data/Chronic_Absenteeism_Total_2022.csv")
+
+## Drop unneeded columns from absentee data
+absentee_total_df = absentee_total_df.drop(["SCHOOL_YEAR", "STATE_NAME", "DATA_GROUP_ID", "TEXT_VALUE", "SUBGROUP"], axis = 1)
+
+## Rename columns
+absentee_total_df = absentee_total_df.rename(columns={"DENOMINATOR": "total_students", "NUMERATOR": "num_chronically_absent_students", "NUMERIC_VALUE":"chronic_absentee_ratio"})
+absentee_total_df["chronic_absentee_ratio"] = absentee_total_df["chronic_absentee_ratio"] / 100
+
+absentee_df = absentee_total_df.merge(df_wide, on = "LEAID", how="inner")
+absentee_df = absentee_df.drop("LEA_NAME_y", axis = 1)
+absentee_df = absentee_df.rename(columns={"LEA_NAME_x": "district_name"})
+
+absentee_df
+```
+
+## Merging Poverty Data 
+
+```{python}
+# Extract last digits from LEAID and convert to integer
+absentee_df["District_ID"] = absentee_df["LEAID"].astype(str).str[-3:].astype(int)  # Adjust number of digits if needed
+
+# Merge the two dataframes on District ID
+merged_df = absentee_df.merge(poverty_df, left_on=["District_ID", "STATE_NAME"], right_on=["District ID", "STATE_NAME"], how="inner")
+
+# Drop the extra District_ID column if not needed
+merged_df = merged_df.drop(columns=["District_ID", "District ID", "Name", "pop_students", "pop_students_poverty"])
+
+merged_df.head()
+```
+
+## Financial Data Cleaning
+
+```{python}
+financial_df = pd.read_csv("./Data/Financial_Data_2022.csv")
+
+## Keep only certain columns in the larger financial dataframe
+financial_df = financial_df.loc[:, ["LEAID", "TFEDREV", "TSTREV", "TLOCREV", "TOTALEXP", "Z33", "Z34"]]
+financial_df = financial_df.rename(columns={"TFEDREV": "total_federal_revenue", "TSTREV": "total_state_revenue",
+                                            "TLOCREV": "total_local_revenue", "TOTALEXP": "total_expenditures",
+                                            "Z33": "total_salaries", "Z34": "total_employee_benefits"})
+
+final_df = merged_df.merge(financial_df, on = "LEAID", how="inner")
+
+final_df.to_csv("cleaned_school_data.csv", index = False)
+```
+
